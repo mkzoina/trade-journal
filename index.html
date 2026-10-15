@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Trade Journal</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<meta name="theme-color" content="#14213d">
+<style>
+:root{--p:#f2f4f7;--i:#14213d;--m:#5b667a;--l:#c9d1dc;--g:#1b7f5c;--r:#b3261e;--a:#f2b705}
+*{box-sizing:border-box}
+body{margin:0;background:var(--p);color:var(--i);font:16px/1.4 system-ui,sans-serif;padding-bottom:90px}
+header{display:flex;justify-content:space-between;align-items:center;padding:16px;position:sticky;top:0;background:var(--p);border-bottom:2px solid var(--i);z-index:5}
+h1{font:700 22px Georgia,serif;margin:0}
+h2{font:700 20px Georgia,serif;margin:0}
+button{background:var(--i);color:#fff;border:0;border-radius:6px;padding:10px 16px;font:600 15px system-ui,sans-serif}
+button.s{background:transparent;color:var(--i);border:1px solid var(--i)}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid var(--a);outline-offset:1px}
+#stats{display:flex;padding:12px 0;border-bottom:1px solid var(--l)}
+#stats div{flex:1;text-align:center;border-right:1px solid var(--l);font-size:13px;color:var(--m)}
+#stats div:last-child{border:0}
+#stats b{display:block;font:700 20px Georgia,serif;color:var(--i)}
+.t{display:flex;justify-content:space-between;gap:10px;padding:14px 16px;border-bottom:1px solid var(--l);border-left:5px solid var(--l);cursor:pointer}
+.t.w{border-left-color:var(--g)}.t.x{border-left-color:var(--r)}
+.n{font:700 18px Georgia,serif;white-space:nowrap}
+.m{color:var(--m);font-size:13px}.g{color:var(--g)}.r{color:var(--r)}
+.warn{background:var(--a);color:var(--i);padding:0 5px;border-radius:3px}
+dialog{background:var(--p);color:var(--i);border:2px solid var(--i);border-radius:10px;width:94%;max-width:540px;max-height:92vh;overflow:auto;padding:16px}
+dialog::backdrop{background:#14213dcc}
+label{display:block;margin:12px 0 4px;color:var(--m);font-size:13px}
+input,select,textarea{width:100%;background:#fff;color:var(--i);border:1px solid var(--l);border-radius:6px;padding:10px;font:16px system-ui,sans-serif}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.row{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.th{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.th img{width:88px;height:66px;object-fit:cover;border-radius:4px;border:1px solid var(--l)}
+img.big{position:fixed;inset:0;width:100vw!important;height:100vh!important;object-fit:contain!important;background:#000;z-index:99;border:0!important;border-radius:0!important}
+fieldset{border:0;border-top:2px solid var(--i);margin:18px 0 0;padding:0}
+legend{font:700 16px Georgia,serif;padding-right:8px}
+</style>
+</head>
+<body>
+<header><h1>Trade Journal</h1><button id="new">New trade</button></header>
+<div id="stats"></div>
+<main id="list"></main>
+
+<dialog id="dlg">
+<form id="f">
+<div class="row"><h2 id="ft">New trade</h2><button type="button" class="s" id="cx">Cancel</button></div>
+<label>Pair</label>
+<input name="pair" list="pl" required placeholder="EURUSD"><datalist id="pl"></datalist>
+<div class="two">
+<div><label>Direction</label><select name="side"><option>Buy<option>Sell</select></div>
+<div><label>Lots</label><input name="lots" type="number" step="0.01" min="0.01" required></div>
+</div>
+<div class="two">
+<div><label>Entry price</label><input name="entry" type="number" step="any" required></div>
+<div><label>Opened</label><input name="opened" type="datetime-local" required></div>
+</div>
+<div class="two">
+<div><label>Stop loss</label><input name="sl" type="number" step="any"></div>
+<div><label>Take profit</label><input name="tp" type="number" step="any"></div>
+</div>
+<label>Why I entered</label>
+<textarea name="reason" rows="3"></textarea>
+<label>Chart pictures before the trade</label>
+<input type="file" id="p_before" accept="image/*" multiple>
+<div class="th" id="th_before"></div>
+<fieldset>
+<legend>Close the trade</legend>
+<p class="m">Fill this in when the trade ends.</p>
+<div class="two">
+<div><label>Exit price</label><input name="exit" type="number" step="any"></div>
+<div><label>Result in KSh (minus for a loss)</label><input name="ksh" type="number" step="any"></div>
+</div>
+<label>Did I follow my plan?</label>
+<select name="followed"><option value="">-<option>Yes<option>No</select>
+<label>Lesson</label>
+<textarea name="lesson" rows="3"></textarea>
+<label>Chart pictures after the trade</label>
+<input type="file" id="p_after" accept="image/*" multiple>
+<div class="th" id="th_after"></div>
+</fieldset>
+<button style="width:100%;margin-top:18px">Save trade</button>
+</form>
+</dialog>
+
+<dialog id="det"></dialog>
+
+<script>
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const PAIRS=['EURUSD','GBPUSD','USDJPY','EURJPY','GBPJPY','EURGBP','GBPAUD','USDCHF','USDCAD','AUDUSD'];
+let db,cur=null;
+
+/* ---- storage (IndexedDB, pictures are stored as Blobs) ---- */
+const init=()=>new Promise(r=>{const q=indexedDB.open('tradejournal',1);
+q.onupgradeneeded=()=>q.result.createObjectStore('t',{keyPath:'id',autoIncrement:true});
+q.onsuccess=()=>{db=q.result;r()}});
+const tx=(m,f)=>new Promise(r=>{const q=f(db.transaction('t',m).objectStore('t'));q.onsuccess=()=>r(q.result)});
+const all=()=>tx('readonly',s=>s.getAll());
+const put=t=>tx('readwrite',s=>s.put(t));
+const del=id=>tx('readwrite',s=>s.delete(id));
+
+/* ---- maths ---- */
+const pips=t=>{if(t.exit==null||t.entry==null)return null;
+const d=t.side==='Buy'?t.exit-t.entry:t.entry-t.exit;
+return Math.round(d/(/JPY/.test(t.pair)?0.01:0.0001)*10)/10};
+const res=t=>t.ksh!=null?t.ksh:pips(t);
+const sign=n=>(n>0?'+':'')+n;
+
+/* ---- pictures ---- */
+const shrink=f=>new Promise(r=>{const i=new Image();
+i.onload=()=>{const s=Math.min(1,1280/Math.max(i.width,i.height)),c=document.createElement('canvas');
+c.width=i.width*s;c.height=i.height*s;c.getContext('2d').drawImage(i,0,0,c.width,c.height);
+c.toBlob(r,'image/jpeg',.8)};
+i.src=URL.createObjectURL(f)});
+const imgs=a=>a.map(b=>`<img src="${URL.createObjectURL(b)}" alt="Chart picture">`).join('');
+
+/* ---- list ---- */
+async function render(){
+const ts=(await all()).sort((a,b)=>b.opened.localeCompare(a.opened));
+const cl=ts.filter(t=>t.exit!=null);
+const wins=cl.filter(t=>res(t)>0).length;
+const net=cl.reduce((s,t)=>s+(t.ksh||0),0);
+$('#stats').innerHTML=`<div><b>${ts.length}</b>Trades</div><div><b>${cl.length?Math.round(wins/cl.length*100)+'%':'-'}</b>Win rate</div><div><b class="${net>0?'g':net<0?'r':''}">${sign(Math.round(net))}</b>Net KSh</div>`;
+$('#list').innerHTML=ts.map(t=>{
+const r=res(t),p=pips(t),n=t.before.length+t.after.length;
+const out=t.exit==null?'Open':t.ksh!=null?sign(t.ksh)+' KSh':sign(p)+' pips';
+return `<div class="t ${r>0?'w':r<0?'x':''}" data-id="${t.id}">
+<div><div><b>${esc(t.pair)}</b> <span class="${t.side=='Buy'?'g':'r'}">${t.side}</span> ${t.lots} lots</div>
+<div class="m">${esc(t.opened.replace('T',' '))}</div>
+<div class="m">Entry ${t.entry}, ${t.sl==null?'<span class="warn">no stop loss</span>':'stop '+t.sl}, ${t.tp==null?'no target':'target '+t.tp}${n?', '+n+' pictures':''}</div></div>
+<div class="n ${r>0?'g':r<0?'r':'m'}">${out}</div></div>`}).join('')
+||'<p class="m" style="padding:16px">No trades yet. Tap New trade to log your first one.</p>';
+}
+
+/* ---- detail view ---- */
+function showDetail(t){
+const p=pips(t);
+$('#det').innerHTML=`<div class="row"><h2>${esc(t.pair)} ${t.side}</h2><button class="s" id="x">Close</button></div>
+<p class="m">${t.lots} lots, entry ${t.entry}, stop ${t.sl??'none'}, target ${t.tp??'none'}</p>
+<label>Why I entered</label><div>${esc(t.reason)||'-'}</div>
+<div class="th">${imgs(t.before)}</div>
+${t.exit!=null?`<label>Result</label><div>Exit ${t.exit}, ${sign(p)} pips${t.ksh!=null?', '+sign(t.ksh)+' KSh':''}</div>
+<label>Did I follow my plan?</label><div>${esc(t.followed)||'-'}</div>
+<label>Lesson</label><div>${esc(t.lesson)||'-'}</div>
+<div class="th">${imgs(t.after)}</div>`:'<p class="m">This trade is still open. Tap Edit or close to finish it.</p>'}
+<div class="row" style="margin-top:16px"><button id="ed">Edit or close</button><button class="s" id="rm">Delete</button></div>`;
+$('#det').showModal();
+$('#x').onclick=()=>$('#det').close();
+$('#ed').onclick=()=>{$('#det').close();openForm(t)};
+$('#rm').onclick=async()=>{if(confirm('Delete this trade?')){await del(t.id);$('#det').close();render()}};
+$('#det').querySelectorAll('img').forEach(i=>i.onclick=()=>i.classList.toggle('big'));
+}
+$('#list').onclick=async e=>{const c=e.target.closest('.t');if(!c)return;
+showDetail((await all()).find(x=>x.id==c.dataset.id))};
+
+/* ---- form ---- */
+const FIELDS=['pair','side','lots','entry','sl','tp','reason','exit','ksh','followed','lesson'];
+function thumbs(){['before','after'].forEach(k=>$('#th_'+k).innerHTML=
+cur[k].map((b,i)=>`<img src="${URL.createObjectURL(b)}" data-k="${k}" data-i="${i}" alt="Tap to remove">`).join(''))}
+function openForm(t){
+cur=t?{...t,before:[...t.before],after:[...t.after]}:{before:[],after:[]};
+const f=$('#f');f.reset();
+FIELDS.forEach(k=>f[k].value=t?.[k]??(k=='lots'?'0.01':k=='side'?'Buy':''));
+f.opened.value=t?.opened||new Date(Date.now()-new Date().getTimezoneOffset()*6e4).toISOString().slice(0,16);
+$('#ft').textContent=t?'Edit trade':'New trade';
+thumbs();$('#dlg').showModal();
+}
+['before','after'].forEach(k=>$('#p_'+k).onchange=async e=>{
+for(const f of e.target.files)cur[k].push(await shrink(f));
+e.target.value='';thumbs()});
+document.addEventListener('click',e=>{const i=e.target;
+if(i.dataset&&i.dataset.k&&confirm('Remove this picture?')){cur[i.dataset.k].splice(+i.dataset.i,1);thumbs()}});
+$('#f').onsubmit=async e=>{e.preventDefault();
+const f=e.target,n=v=>v===''?null:+v;
+const t={...cur,pair:f.pair.value.toUpperCase().trim(),side:f.side.value,lots:n(f.lots.value),
+entry:n(f.entry.value),sl:n(f.sl.value),tp:n(f.tp.value),reason:f.reason.value,opened:f.opened.value,
+exit:n(f.exit.value),ksh:n(f.ksh.value),followed:f.followed.value,lesson:f.lesson.value};
+if(t.exit!=null&&!t.closed)t.closed=new Date().toISOString();
+await put(t);$('#dlg').close();render()};
+$('#cx').onclick=()=>$('#dlg').close();
+$('#new').onclick=()=>openForm();
+
+/* ---- start ---- */
+$('#pl').innerHTML=PAIRS.map(p=>`<option value="${p}">`).join('');
+init().then(render);
+if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js');
+</script>
+</body>
+</html>
